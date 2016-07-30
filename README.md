@@ -1,12 +1,11 @@
-[![Build Status](https://travis-ci.org/lh3/bwa.svg?branch=dev)](https://travis-ci.org/lh3/bwa)
-[![Build Status](https://drone.io/github.com/lh3/bwa/status.png)](https://drone.io/github.com/lh3/bwa/latest)
+![Build Status](https://travis-ci.org/IvantheDugtrio/bwa.svg?branch=master)
 ##Getting started
 
-	git clone https://github.com/lh3/bwa.git
-	cd bwa; make
-	./bwa index ref.fa
-	./bwa mem ref.fa read-se.fq.gz | gzip -3 > aln-se.sam.gz
-	./bwa mem ref.fa read1.fq read2.fq | gzip -3 > aln-pe.sam.gz
+    git clone https://github.com/lh3/bwa.git
+    cd bwa; make
+    ./bwa index ref.fa
+    ./bwa mem ref.fa read-se.fq.gz | gzip -3 > aln-se.sam.gz
+    ./bwa mem ref.fa read1.fq read2.fq | gzip -3 > aln-pe.sam.gz
 
 ##Introduction
 
@@ -82,25 +81,25 @@ settings:
 * Illumina/454/IonTorrent single-end reads longer than ~70bp or assembly
   contigs up to a few megabases mapped to a closely related reference genome:
 
-		bwa mem ref.fa reads.fq > aln.sam
+        bwa mem ref.fa reads.fq > aln.sam
 
 * Illumina single-end reads shorter than ~70bp:
 
-		bwa aln ref.fa reads.fq > reads.sai; bwa samse ref.fa reads.sai reads.fq > aln-se.sam
+        bwa aln ref.fa reads.fq > reads.sai; bwa samse ref.fa reads.sai reads.fq > aln-se.sam
 
 * Illumina/454/IonTorrent paired-end reads longer than ~70bp:
 
-		bwa mem ref.fa read1.fq read2.fq > aln-pe.sam
+        bwa mem ref.fa read1.fq read2.fq > aln-pe.sam
 
 * Illumina paired-end reads shorter than ~70bp:
 
-		bwa aln ref.fa read1.fq > read1.sai; bwa aln ref.fa read2.fq > read2.sai
-		bwa sampe ref.fa read1.sai read2.sai read1.fq read2.fq > aln-pe.sam
+        bwa aln ref.fa read1.fq > read1.sai; bwa aln ref.fa read2.fq > read2.sai
+        bwa sampe ref.fa read1.sai read2.sai read1.fq read2.fq > aln-pe.sam
 
 * PacBio subreads or Oxford Nanopore reads to a reference genome:
 
-		bwa mem -x pacbio ref.fa reads.fq > aln.sam
-		bwa mem -x ont2d ref.fa reads.fq > aln.sam
+        bwa mem -x pacbio ref.fa reads.fq > aln.sam
+        bwa mem -x ont2d ref.fa reads.fq > aln.sam
 
 BWA-MEM is recommended for query sequences longer than ~70bp for a variety of
 error rates (or sequence divergence). Generally, BWA-MEM is more tolerant with
