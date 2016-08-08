@@ -28,7 +28,8 @@
 #include <assert.h>
 #ifdef __PPC64__
 #include "vec128int.h"
-#else
+#endif
+#ifdef __AMD64__
 #include <emmintrin.h>
 #endif
 #include "ksw.h"
@@ -127,7 +128,8 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
                 (xx) = vec_max16ub((xx), vec_shiftrightbytes1q((xx), 1)); \
         (ret) = vec_extract8sh((xx), 0) & 0x00ff; \
         } while (0)
-#else
+#endif
+#ifdef __AMD64__
 #define __max_16(ret, xx) do { \
                 (xx) = _mm_max_epu8((xx), _mm_srli_si128((xx), 8)); \
                 (xx) = _mm_max_epu8((xx), _mm_srli_si128((xx), 4)); \
@@ -144,59 +146,68 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
     m_b = n_b = 0; b = 0;
 #ifdef __PPC64__
     zero = vec_splat4sw(0);
-#else
-    zero = _mm_set1_epi32(0);    /* !!!REP NOT FOUND!!! */ 
+#endif
+#ifdef __AMD64__
+    zero = _mm_set1_epi32(0);    /* !!!REP NOT FOUND!!! */
 #endif
 #ifdef __PPC64__
     oe_del = vec_splat16sb(_o_del + _e_del);
-#else
+#endif
+#ifdef __AMD64__
     oe_del = _mm_set1_epi8(_o_del + _e_del);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
     e_del = vec_splat16sb(_e_del);
-#else
+#endif
+#ifdef __AMD64__
     e_del = _mm_set1_epi8(_e_del);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
     oe_ins = vec_splat16sb(_o_ins + _e_ins);
-#else
+#endif
+#ifdef __AMD64__
     oe_ins = _mm_set1_epi8(_o_ins + _e_ins);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
     e_ins = vec_splat16sb(_e_ins);
-#else
+#endif
+#ifdef __AMD64__
     e_ins = _mm_set1_epi8(_e_ins);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
     shift = vec_splat16sb(q->shift);
-#else
+#endif
+#ifdef __AMD64__
     shift = _mm_set1_epi8(q->shift);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
     H0 = q->H0; H1 = q->H1; E = q->E; Hmax = q->Hmax;
     slen = q->slen;
     for (i = 0; i < slen; ++i) {
 #ifdef __PPC64__
         vec_store1q(E + i, zero);
-#else
+#endif
+#ifdef __AMD64__
         _mm_store_si128(E + i, zero);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
         vec_store1q(H0 + i, zero);
-#else
+#endif
+#ifdef __AMD64__
         _mm_store_si128(H0 + i, zero);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
         vec_store1q(Hmax + i, zero);
-#else
+#endif
+#ifdef __AMD64__
         _mm_store_si128(Hmax + i, zero);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
     }
     // the core loop
@@ -205,23 +216,25 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
         __m128i e, h, t, f = zero, max = zero, *S = q->qp + target[i] * slen; // s is the 1st score vector
 #ifdef __PPC64__
         h = vec_load1q(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
-#else
+#endif
+#ifdef __AMD64__
         h = _mm_load_si128(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
         #ifdef __BIG_ENDIAN__
 #ifdef __PPC64__
-            h = vec_shiftrightbytes1q(h, 1);    
-#else
-            h = _mm_srli_si128(h, 1);   
-   /* NEED INSPECTION */ 
+            h = vec_shiftrightbytes1q(h, 1);
+#endif
+#ifdef __AMD64__
+            h = _mm_srli_si128(h, 1);
+   /* NEED INSPECTION */
 #endif
         #else
 #ifdef __PPC64__
             h = vec_shiftleftbytes1q(h, 1); // h=H(i-1,-1); << instead of >> because x64 is little-endian
 #else
             h = _mm_slli_si128(h, 1); // h=H(i-1,-1); << instead of >> because x64 is little-endian
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
         #endif
         for (j = 0; LIKELY(j < slen); ++j) {
@@ -233,96 +246,111 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
             // compute H'(i,j); note that at the beginning, h=H'(i-1,j-1)
 #ifdef __PPC64__
             h = vec_addsaturating16ub(h, vec_load1q(S + j));
-#else
+#endif
+#ifdef __AMD64__
             h = _mm_adds_epu8(h, _mm_load_si128(S + j));
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             h = vec_subtractsaturating16ub(h, shift); // h=H'(i-1,j-1)+S(i,j)
-#else
+#endif
+#ifdef __AMD64__
             h = _mm_subs_epu8(h, shift); // h=H'(i-1,j-1)+S(i,j)
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             e = vec_load1q(E + j); // e=E'(i,j)
-#else
+#endif
+#ifdef __AMD64__
             e = _mm_load_si128(E + j); // e=E'(i,j)
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             h = vec_max16ub(h, e);
-#else
+#endif
+#ifdef __AMD64__
             h = _mm_max_epu8(h, e);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             h = vec_max16ub(h, f); // h=H'(i,j)
-#else
+#endif
+#ifdef __AMD64__
             h = _mm_max_epu8(h, f); // h=H'(i,j)
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             max = vec_max16ub(max, h); // set max
-#else
+#endif
+#ifdef __AMD64__
             max = _mm_max_epu8(max, h); // set max
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             vec_store1q(H1 + j, h); // save to H'(i,j)
-#else
+#endif
+#ifdef __AMD64__
             _mm_store_si128(H1 + j, h); // save to H'(i,j)
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
             // now compute E'(i+1,j)
 #ifdef __PPC64__
             e = vec_subtractsaturating16ub(e, e_del); // e=E'(i,j) - e_del
-#else
+#endif
+#ifdef __AMD64__
             e = _mm_subs_epu8(e, e_del); // e=E'(i,j) - e_del
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             t = vec_subtractsaturating16ub(h, oe_del); // h=H'(i,j) - o_del - e_del
-#else
+#endif
+#ifdef __AMD64__
             t = _mm_subs_epu8(h, oe_del); // h=H'(i,j) - o_del - e_del
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             e = vec_max16ub(e, t); // e=E'(i+1,j)
-#else
+#endif
+#ifdef __AMD64__
             e = _mm_max_epu8(e, t); // e=E'(i+1,j)
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             vec_store1q(E + j, e); // save to E'(i+1,j)
-#else
+#endif
+#ifdef __AMD64__
             _mm_store_si128(E + j, e); // save to E'(i+1,j)
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
             // now compute F'(i,j+1)
 #ifdef __PPC64__
             f = vec_subtractsaturating16ub(f, e_ins);
-#else
+#endif
+#ifdef __AMD64__
             f = _mm_subs_epu8(f, e_ins);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             t = vec_subtractsaturating16ub(h, oe_ins); // h=H'(i,j) - o_ins - e_ins
-#else
+#endif
+#ifdef __AMD64__
             t = _mm_subs_epu8(h, oe_ins); // h=H'(i,j) - o_ins - e_ins
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             f = vec_max16ub(f, t);
-#else
+#endif
+#ifdef __AMD64__
             f = _mm_max_epu8(f, t);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
             // get H'(i-1,j) and prepare for the next j
 #ifdef __PPC64__
             h = vec_load1q(H0 + j); // h=H'(i-1,j)
-#else
+#endif
+#ifdef __AMD64__
             h = _mm_load_si128(H0 + j); // h=H'(i-1,j)
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
         }
         // NB: we do not need to set E(i,j) as we disallow adjecent insertion and then deletion
@@ -330,54 +358,62 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
             #ifdef __BIG_ENDIAN__
 #ifdef __PPC64__
                 f = vec_shiftrightbytes1q(f, 1);
-#else
+#endif
+#ifdef __AMD64__
                 f = _mm_srli_si128(f, 1);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
             #else
 #ifdef __PPC64__
                 f = vec_shiftleftbytes1q(f, 1);
-#else
+#endif
+#ifdef __AMD64__
                 f = _mm_slli_si128(f, 1);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
             #endif
             for (j = 0; LIKELY(j < slen); ++j) {
 #ifdef __PPC64__
                 h = vec_load1q(H1 + j);
-#else
+#endif
+#ifdef __AMD64__
                 h = _mm_load_si128(H1 + j);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
                 h = vec_max16ub(h, f); // h=H'(i,j)
-#else
+#endif
+#ifdef __AMD64__
                 h = _mm_max_epu8(h, f); // h=H'(i,j)
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
                 vec_store1q(H1 + j, h);
-#else
+#endif
+#ifdef __AMD64__
                 _mm_store_si128(H1 + j, h);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
                 h = vec_subtractsaturating16ub(h, oe_ins);
-#else
+#endif
+#ifdef __AMD64__
                 h = _mm_subs_epu8(h, oe_ins);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
                 f = vec_subtractsaturating16ub(f, e_ins);
-#else
+#endif
+#ifdef __AMD64__
                 f = _mm_subs_epu8(f, e_ins);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
                 cmp = vec_extractupperbit16sb(vec_compareeq16sb(vec_subtractsaturating16ub(f, h), zero));
-#else
+#endif
+#ifdef __AMD64__
                 cmp = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_subs_epu8(f, h), zero));
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
                 if (UNLIKELY(cmp == 0xffff)) goto end_loop16;
             }
@@ -399,9 +435,10 @@ end_loop16:
             for (j = 0; LIKELY(j < slen); ++j) // keep the H1 vector
 #ifdef __PPC64__
                 vec_store1q(Hmax + j, vec_load1q(H1 + j));
-#else
+#endif
+#ifdef __AMD64__
                 _mm_store_si128(Hmax + j, _mm_load_si128(H1 + j));
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
             if (gmax + q->shift >= 255 || gmax >= endsc) break;
         }
@@ -414,7 +451,7 @@ end_loop16:
         uint8_t *t = (uint8_t*)Hmax;
         for (i = 0; i < qlen; ++i, ++t)
             if ((int)*t > max) max = *t, r.qe = i / 16 + i % 16 * slen;
-            else if ((int)*t == max && (tmp = i / 16 + i % 16 * slen) < r.qe) r.qe = tmp; 
+            else if ((int)*t == max && (tmp = i / 16 + i % 16 * slen) < r.qe) r.qe = tmp;
         //printf("%d,%d\n", max, gmax);
         if (b) {
             i = (r.score + q->max - 1) / q->max;
@@ -444,7 +481,8 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
                 (xx) = vec_max8sh((xx), vec_shiftrightbytes1q((xx), 2)); \
         (ret) = vec_extract8sh((xx), 0); \
         } while (0)
-#else
+#endif
+#ifdef __AMD64__
 #define __max_8(ret, xx) do { \
                 (xx) = _mm_max_epi16((xx), _mm_srli_si128((xx), 8)); \
                 (xx) = _mm_max_epi16((xx), _mm_srli_si128((xx), 4)); \
@@ -460,53 +498,61 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
     m_b = n_b = 0; b = 0;
 #ifdef __PPC64__
     zero = vec_splat4sw(0);
-#else
-    zero = _mm_set1_epi32(0);    /* !!!REP NOT FOUND!!! */ 
+#endif
+#ifdef __AMD64__
+    zero = _mm_set1_epi32(0);    /* !!!REP NOT FOUND!!! */
 #endif
 #ifdef __PPC64__
     oe_del = vec_splat8sh(_o_del + _e_del);
-#else
+#endif
+#ifdef __AMD64__
     oe_del = _mm_set1_epi16(_o_del + _e_del);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
     e_del = vec_splat8sh(_e_del);
-#else
+#endif
+#ifdef __AMD64__
     e_del = _mm_set1_epi16(_e_del);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
     oe_ins = vec_splat8sh(_o_ins + _e_ins);
-#else
+#endif
+#ifdef __AMD64__
     oe_ins = _mm_set1_epi16(_o_ins + _e_ins);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
     e_ins = vec_splat8sh(_e_ins);
-#else
+#endif
+#ifdef __AMD64__
     e_ins = _mm_set1_epi16(_e_ins);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
     H0 = q->H0; H1 = q->H1; E = q->E; Hmax = q->Hmax;
     slen = q->slen;
     for (i = 0; i < slen; ++i) {
 #ifdef __PPC64__
         vec_store1q(E + i, zero);
-#else
+#endif
+#ifdef __AMD64__
         _mm_store_si128(E + i, zero);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
         vec_store1q(H0 + i, zero);
-#else
+#endif
+#ifdef __AMD64__
         _mm_store_si128(H0 + i, zero);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
         vec_store1q(Hmax + i, zero);
-#else
+#endif
+#ifdef __AMD64__
         _mm_store_si128(Hmax + i, zero);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
     }
     // the core loop
@@ -515,163 +561,188 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
         __m128i e, t, h, f = zero, max = zero, *S = q->qp + target[i] * slen; // s is the 1st score vector
 #ifdef __PPC64__
         h = vec_load1q(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
-#else
+#endif
+#ifdef __AMD64__
         h = _mm_load_si128(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
         #ifdef __BIG_ENDIAN__
 #ifdef __PPC64__
             h = vec_shiftrightbytes1q(h, 2);
-#else
+#endif
+#ifdef __AMD64__
             h = _mm_srli_si128(h, 2);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
         #else
 #ifdef __PPC64__
             h = vec_shiftleftbytes1q(h, 2);
-#else
+#endif
+#ifdef __AMD64__
             h = _mm_slli_si128(h, 2);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
         #endif
         for (j = 0; LIKELY(j < slen); ++j) {
 #ifdef __PPC64__
             h = vec_addsaturating8sh(h, *S++);
-#else
+#endif
+#ifdef __AMD64__
             h = _mm_adds_epi16(h, *S++);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             e = vec_load1q(E + j);
-#else
+#endif
+#ifdef __AMD64__
             e = _mm_load_si128(E + j);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             h = vec_max8sh(h, e);
-#else
+#endif
+#ifdef __AMD64__
             h = _mm_max_epi16(h, e);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             h = vec_max8sh(h, f);
-#else
+#endif
+#ifdef __AMD64__
             h = _mm_max_epi16(h, f);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             max = vec_max8sh(max, h);
-#else
+#endif
+#ifdef __AMD64__
             max = _mm_max_epi16(max, h);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             vec_store1q(H1 + j, h);
-#else
+#endif
+#ifdef __AMD64__
             _mm_store_si128(H1 + j, h);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             e = vec_subtractsaturating8uh(e, e_del);
-#else
+#endif
+#ifdef __AMD64__
             e = _mm_subs_epu16(e, e_del);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             t = vec_subtractsaturating8uh(h, oe_del);
-#else
+#endif
+#ifdef __AMD64__
             t = _mm_subs_epu16(h, oe_del);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             e = vec_max8sh(e, t);
-#else
+#endif
+#ifdef __AMD64__
             e = _mm_max_epi16(e, t);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             vec_store1q(E + j, e);
-#else
+#endif
+#ifdef __AMD64__
             _mm_store_si128(E + j, e);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             f = vec_subtractsaturating8uh(f, e_ins);
-#else
+#endif
+#ifdef __AMD64__
             f = _mm_subs_epu16(f, e_ins);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             t = vec_subtractsaturating8uh(h, oe_ins);
-#else
+#endif
+#ifdef __AMD64__
             t = _mm_subs_epu16(h, oe_ins);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             f = vec_max8sh(f, t);
-#else
+#endif
+#ifdef __AMD64__
             f = _mm_max_epi16(f, t);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
             h = vec_load1q(H0 + j);
-#else
+#endif
+#ifdef __AMD64__
             h = _mm_load_si128(H0 + j);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
         }
         for (k = 0; LIKELY(k < 16); ++k) {
             #ifdef __BIG_ENDIAN__
 #ifdef __PPC64__
                 f = vec_shiftrightbytes1q(f, 2);
-#else
+#endif
+#ifdef __AMD64__
                 f = _mm_srli_si128(f, 2);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
             #else
 #ifdef __PPC64__
                 f = vec_shiftleftbytes1q(f, 2);
-#else
+#endif
+#ifdef __AMD64__
                 f = _mm_slli_si128(f, 2);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
             #endif
             for (j = 0; LIKELY(j < slen); ++j) {
 #ifdef __PPC64__
                 h = vec_load1q(H1 + j);
-#else
+#endif
+#ifdef __AMD64__
                 h = _mm_load_si128(H1 + j);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
                 h = vec_max8sh(h, f);
-#else
+#endif
+#ifdef __AMD64__
                 h = _mm_max_epi16(h, f);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
                 vec_store1q(H1 + j, h);
-#else
+#endif
+#ifdef __AMD64__
                 _mm_store_si128(H1 + j, h);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
                 h = vec_subtractsaturating8uh(h, oe_ins);
-#else
+#endif
+#ifdef __AMD64__
                 h = _mm_subs_epu16(h, oe_ins);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
                 f = vec_subtractsaturating8uh(f, e_ins);
-#else
+#endif
+#ifdef __AMD64__
                 f = _mm_subs_epu16(f, e_ins);
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
 #ifdef __PPC64__
                 if(UNLIKELY(!vec_extractupperbit16sb(vec_comparegt8sh(f, h)))) goto end_loop8;
-#else
+#endif
+#ifdef __AMD64__
                 if(UNLIKELY(!_mm_movemask_epi8(_mm_cmpgt_epi16(f, h)))) goto end_loop8;
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
             }
         }
@@ -691,9 +762,10 @@ end_loop8:
             for (j = 0; LIKELY(j < slen); ++j)
 #ifdef __PPC64__
                 vec_store1q(Hmax + j, vec_load1q(H1 + j));
-#else
+#endif
+#ifdef __AMD64__
                 _mm_store_si128(Hmax + j, _mm_load_si128(H1 + j));
-   /* NEED INSPECTION */ 
+   /* NEED INSPECTION */
 #endif
             if (gmax >= endsc) break;
         }
@@ -705,7 +777,7 @@ end_loop8:
         uint16_t *t = (uint16_t*)Hmax;
         for (i = 0, r.qe = -1; i < qlen; ++i, ++t)
             if ((int)*t > max) max = *t, r.qe = i / 8 + i % 8 * slen;
-            else if ((int)*t == max && (tmp = i / 8 + i % 8 * slen) < r.qe) r.qe = tmp; 
+            else if ((int)*t == max && (tmp = i / 8 + i % 8 * slen) < r.qe) r.qe = tmp;
         if (b) {
             i = (r.score + q->max - 1) / q->max;
             low = te - i; high = te + i;
@@ -1010,21 +1082,21 @@ int ksw_global(int qlen, const uint8_t *query, int tlen, const uint8_t *target, 
 KSEQ_INIT(gzFile, err_gzread)
 
 unsigned char seq_nt4_table[256] = {
-    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
-    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
     4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
-    4, 0, 4, 1,  4, 4, 4, 2,  4, 4, 4, 4,  4, 4, 4, 4, 
-    4, 4, 4, 4,  3, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
-    4, 0, 4, 1,  4, 4, 4, 2,  4, 4, 4, 4,  4, 4, 4, 4, 
-    4, 4, 4, 4,  3, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
-    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
-    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
-    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
-    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
-    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
-    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
-    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
+    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
+    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
+    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
+    4, 0, 4, 1,  4, 4, 4, 2,  4, 4, 4, 4,  4, 4, 4, 4,
+    4, 4, 4, 4,  3, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
+    4, 0, 4, 1,  4, 4, 4, 2,  4, 4, 4, 4,  4, 4, 4, 4,
+    4, 4, 4, 4,  3, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
+    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
+    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
+    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
+    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
+    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
+    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
+    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
     4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4
 };
 
