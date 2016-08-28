@@ -28,8 +28,9 @@
 #include <assert.h>
 #ifdef __PPC64__
 #include "vec128int.h"
-#endif
-#ifdef __x86_64__
+#elif __AVX__
+#include <avxintrin.h>
+#elif __SSE2__
 #include <emmintrin.h>
 #endif
 #include "ksw.h"
@@ -51,7 +52,11 @@ const kswr_t g_defr = { 0, -1, -1, -1, -1, -1, -1 };
 struct _kswq_t {
     int qlen, slen;
     uint8_t shift, mdiff, max, size;
+#ifdef __AVX__
+    __m256i *qp, *H0, *H1, *E, *Hmax;
+#else
     __m128i *qp, *H0, *H1, *E, *Hmax;
+#endif
 };
 
 /**
@@ -74,7 +79,11 @@ kswq_t *ksw_qinit(int size, int qlen, const uint8_t *query, int m, const int8_t 
     p = 8 * (3 - size); // # values per __m128i
     slen = (qlen + p - 1) / p; // segmented length
     q = (kswq_t*)malloc(sizeof(kswq_t) + 256 + 16 * slen * (m + 4)); // a single block of memory
+#ifdef __AVX__
+    q->qp = (__m256i*)(((size_t)q + sizeof(kswq_t) + 15) >> 4 << 4); // align memory
+#else
     q->qp = (__m128i*)(((size_t)q + sizeof(kswq_t) + 15) >> 4 << 4); // align memory
+#endif
     q->H0 = q->qp + slen * m;
     q->H1 = q->H0 + slen;
     q->E  = q->H1 + slen;
@@ -117,7 +126,11 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
 {
     int slen, i, m_b, n_b, te = -1, gmax = 0, minsc, endsc;
     uint64_t *b;
+#ifdef __AVX__
+    __m256i zero, oe_del, e_del, oe_ins, e_ins, shift, *H0, *H1, *E, *Hmax;
+#else
     __m128i zero, oe_del, e_del, oe_ins, e_ins, shift, *H0, *H1, *E, *Hmax;
+#endif
     kswr_t r;
 
 #ifdef __PPC64__
@@ -128,8 +141,15 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
                 (xx) = vec_max16ub((xx), vec_shiftrightbytes1q((xx), 1)); \
         (ret) = vec_extract8sh((xx), 0) & 0x00ff; \
         } while (0)
-#endif
-#ifdef __x86_64__
+#elif __AVX__
+#define __max_16(ret, xx) do { \
+                (xx) = _mm256_max_epu8((xx), _mm256_srli_si256((xx), 8)); \
+                (xx) = _mm256_max_epu8((xx), _mm256_srli_si256((xx), 4)); \
+                (xx) = _mm256_max_epu8((xx), _mm256_srli_si256((xx), 2)); \
+                (xx) = _mm256_max_epu8((xx), _mm256_srli_si256((xx), 1)); \
+        (ret) = _mm256_extract_epi16((xx), 0) & 0x00ff; \
+        } while (0)
+#elif __SSE2__
 #define __max_16(ret, xx) do { \
                 (xx) = _mm_max_epu8((xx), _mm_srli_si128((xx), 8)); \
                 (xx) = _mm_max_epu8((xx), _mm_srli_si128((xx), 4)); \
@@ -146,90 +166,67 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
     m_b = n_b = 0; b = 0;
 #ifdef __PPC64__
     zero = vec_splat4sw(0);
-#endif
-#ifdef __x86_64__
-    zero = _mm_set1_epi32(0);    /* !!!REP NOT FOUND!!! */
-#endif
-#ifdef __PPC64__
     oe_del = vec_splat16sb(_o_del + _e_del);
-#endif
-#ifdef __x86_64__
-    oe_del = _mm_set1_epi8(_o_del + _e_del);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
     e_del = vec_splat16sb(_e_del);
-#endif
-#ifdef __x86_64__
-    e_del = _mm_set1_epi8(_e_del);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
     oe_ins = vec_splat16sb(_o_ins + _e_ins);
-#endif
-#ifdef __x86_64__
-    oe_ins = _mm_set1_epi8(_o_ins + _e_ins);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
     e_ins = vec_splat16sb(_e_ins);
-#endif
-#ifdef __x86_64__
-    e_ins = _mm_set1_epi8(_e_ins);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
     shift = vec_splat16sb(q->shift);
-#endif
-#ifdef __x86_64__
+#elif __AVX__
+    zero = _mm256_set1_epi32(0);    /* !!!REP NOT FOUND!!! */
+    oe_del = _mm256_set1_epi8(_o_del + _e_del);
+    e_del = _mm256_set1_epi8(_e_del);
+    oe_ins = _mm256_set1_epi8(_o_ins + _e_ins);
+    e_ins = _mm256_set1_epi8(_e_ins);
+    shift = _mm256_set1_epi8(q->shift);
+#elif __SSE2__
+    zero = _mm_set1_epi32(0);    /* !!!REP NOT FOUND!!! */
+    oe_del = _mm_set1_epi8(_o_del + _e_del);
+    e_del = _mm_set1_epi8(_e_del);
+    oe_ins = _mm_set1_epi8(_o_ins + _e_ins);
+    e_ins = _mm_set1_epi8(_e_ins);
     shift = _mm_set1_epi8(q->shift);
-   /* NEED INSPECTION */
 #endif
     H0 = q->H0; H1 = q->H1; E = q->E; Hmax = q->Hmax;
     slen = q->slen;
     for (i = 0; i < slen; ++i) {
 #ifdef __PPC64__
         vec_store1q(E + i, zero);
-#endif
-#ifdef __x86_64__
-        _mm_store_si128(E + i, zero);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
         vec_store1q(H0 + i, zero);
-#endif
-#ifdef __x86_64__
-        _mm_store_si128(H0 + i, zero);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
         vec_store1q(Hmax + i, zero);
-#endif
-#ifdef __x86_64__
+#elif __AVX__
+        _mm256_store_si256(E + i, zero);
+        _mm256_store_si256(Hmax + i, zero);
+        _mm256_store_si256(H0 + i, zero);
+#elif __SSE2__
+        _mm_store_si128(E + i, zero);
         _mm_store_si128(Hmax + i, zero);
-   /* NEED INSPECTION */
+        _mm_store_si128(H0 + i, zero);
 #endif
     }
     // the core loop
     for (i = 0; i < tlen; ++i) {
         int j, k, cmp, imax;
+#ifdef __AVX__
+        __m256i e, h, t, f = zero, max = zero, *S = q->qp + target[i] * slen; // s is the 1st score vector
+#else
         __m128i e, h, t, f = zero, max = zero, *S = q->qp + target[i] * slen; // s is the 1st score vector
+#endif
 #ifdef __PPC64__
         h = vec_load1q(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
-#endif
-#ifdef __x86_64__
+#elif __AVX__
+        h = _mm256_load_si256(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
+#elif __SSE2__
         h = _mm_load_si128(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
    /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
+#elif __PPC64__
 #ifdef __BIG_ENDIAN__
-            h = vec_shiftrightbytes1q(h, 1);
+                h = vec_shiftrightbytes1q(h, 1);
 #else
-            h = vec_shiftleftbytes1q(h, 1); // h=H(i-1,-1); << instead of >> because x64 is little-endian
+                h = vec_shiftleftbytes1q(h, 1); // h=H(i-1,-1); << instead of >> because x64 is little-endian
 #endif
-#endif
-   /* NEED INSPECTION */
-#ifdef __x86_64__
+#elif __AVX__
+            h = _mm256_slli_si256(h, 1); // h=H(i-1,-1); << instead of >> because x64 is little-endian
+#elif __SSE2__
             h = _mm_slli_si128(h, 1); // h=H(i-1,-1); << instead of >> because x64 is little-endian
    /* NEED INSPECTION */
 #endif
@@ -242,167 +239,98 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
             // compute H'(i,j); note that at the beginning, h=H'(i-1,j-1)
 #ifdef __PPC64__
             h = vec_addsaturating16ub(h, vec_load1q(S + j));
-#endif
-#ifdef __x86_64__
-            h = _mm_adds_epu8(h, _mm_load_si128(S + j));
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             h = vec_subtractsaturating16ub(h, shift); // h=H'(i-1,j-1)+S(i,j)
-#endif
-#ifdef __x86_64__
-            h = _mm_subs_epu8(h, shift); // h=H'(i-1,j-1)+S(i,j)
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             e = vec_load1q(E + j); // e=E'(i,j)
-#endif
-#ifdef __x86_64__
-            e = _mm_load_si128(E + j); // e=E'(i,j)
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             h = vec_max16ub(h, e);
-#endif
-#ifdef __x86_64__
-            h = _mm_max_epu8(h, e);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             h = vec_max16ub(h, f); // h=H'(i,j)
-#endif
-#ifdef __x86_64__
-            h = _mm_max_epu8(h, f); // h=H'(i,j)
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             max = vec_max16ub(max, h); // set max
-#endif
-#ifdef __x86_64__
-            max = _mm_max_epu8(max, h); // set max
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             vec_store1q(H1 + j, h); // save to H'(i,j)
-#endif
-#ifdef __x86_64__
-            _mm_store_si128(H1 + j, h); // save to H'(i,j)
-   /* NEED INSPECTION */
-#endif
             // now compute E'(i+1,j)
-#ifdef __PPC64__
             e = vec_subtractsaturating16ub(e, e_del); // e=E'(i,j) - e_del
-#endif
-#ifdef __x86_64__
-            e = _mm_subs_epu8(e, e_del); // e=E'(i,j) - e_del
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             t = vec_subtractsaturating16ub(h, oe_del); // h=H'(i,j) - o_del - e_del
-#endif
-#ifdef __x86_64__
-            t = _mm_subs_epu8(h, oe_del); // h=H'(i,j) - o_del - e_del
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             e = vec_max16ub(e, t); // e=E'(i+1,j)
-#endif
-#ifdef __x86_64__
-            e = _mm_max_epu8(e, t); // e=E'(i+1,j)
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             vec_store1q(E + j, e); // save to E'(i+1,j)
-#endif
-#ifdef __x86_64__
-            _mm_store_si128(E + j, e); // save to E'(i+1,j)
-   /* NEED INSPECTION */
-#endif
             // now compute F'(i,j+1)
-#ifdef __PPC64__
             f = vec_subtractsaturating16ub(f, e_ins);
-#endif
-#ifdef __x86_64__
-            f = _mm_subs_epu8(f, e_ins);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             t = vec_subtractsaturating16ub(h, oe_ins); // h=H'(i,j) - o_ins - e_ins
-#endif
-#ifdef __x86_64__
-            t = _mm_subs_epu8(h, oe_ins); // h=H'(i,j) - o_ins - e_ins
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             f = vec_max16ub(f, t);
-#endif
-#ifdef __x86_64__
-            f = _mm_max_epu8(f, t);
-   /* NEED INSPECTION */
-#endif
             // get H'(i-1,j) and prepare for the next j
-#ifdef __PPC64__
             h = vec_load1q(H0 + j); // h=H'(i-1,j)
-#endif
-#ifdef __x86_64__
+#elif __AVX__
+            h = _mm256_adds_epu8(h, _mm256_load_si256(S + j));
+            h = _mm256_subs_epu8(h, shift); // h=H'(i-1,j-1)+S(i,j)
+            e = _mm256_load_si256(E + j); // e=E'(i,j)
+            h = _mm256_max_epu8(h, e);
+            h = _mm256_max_epu8(h, f); // h=H'(i,j)
+            max = _mm256_max_epu8(max, h); // set max
+            _mm256_store_si256(H1 + j, h); // save to H'(i,j)
+            // now compute E'(i+1,j)
+            e = _mm256_subs_epu8(e, e_del); // e=E'(i,j) - e_del
+            t = _mm256_subs_epu8(h, oe_del); // h=H'(i,j) - o_del - e_del
+            e = _mm256_max_epu8(e, t); // e=E'(i+1,j)
+            _mm256_store_si256(E + j, e); // save to E'(i+1,j)
+            // now compute F'(i,j+1)
+            f = _mm256_subs_epu8(f, e_ins);
+            t = _mm256_subs_epu8(h, oe_ins); // h=H'(i,j) - o_ins - e_ins
+            f = _mm256_max_epu8(f, t);
+            // get H'(i-1,j) and prepare for the next j
+            h = _mm256_load_si256(H0 + j); // h=H'(i-1,j)
+#elif __SSE2__
+            h = _mm_adds_epu8(h, _mm_load_si128(S + j));
+            h = _mm_subs_epu8(h, shift); // h=H'(i-1,j-1)+S(i,j)
+            e = _mm_load_si128(E + j); // e=E'(i,j)
+            h = _mm_max_epu8(h, e);
+            h = _mm_max_epu8(h, f); // h=H'(i,j)
+            max = _mm_max_epu8(max, h); // set max
+            _mm_store_si128(H1 + j, h); // save to H'(i,j)
+            // now compute E'(i+1,j)
+            e = _mm_subs_epu8(e, e_del); // e=E'(i,j) - e_del
+            t = _mm_subs_epu8(h, oe_del); // h=H'(i,j) - o_del - e_del
+            e = _mm_max_epu8(e, t); // e=E'(i+1,j)
+            _mm_store_si128(E + j, e); // save to E'(i+1,j)
+            // now compute F'(i,j+1)
+            f = _mm_subs_epu8(f, e_ins);
+            t = _mm_subs_epu8(h, oe_ins); // h=H'(i,j) - o_ins - e_ins
+            f = _mm_max_epu8(f, t);
+            // get H'(i-1,j) and prepare for the next j
             h = _mm_load_si128(H0 + j); // h=H'(i-1,j)
-   /* NEED INSPECTION */
 #endif
         }
         // NB: we do not need to set E(i,j) as we disallow adjecent insertion and then deletion
         for (k = 0; LIKELY(k < 16); ++k) { // this block mimics SWPS3; NB: H(i,j) updated in the lazy-F loop cannot exceed max
 #ifdef __PPC64__
 #ifdef __BIG_ENDIAN__
-                f = vec_shiftrightbytes1q(f, 1);
+                    f = vec_shiftrightbytes1q(f, 1);
 #else
-                f = vec_shiftleftbytes1q(f, 1);
+                    f = vec_shiftleftbytes1q(f, 1);
 #endif
-#endif
-#ifdef __x86_64__
+                h = vec_load1q(H1 + j);
+#elif __AVX__
+                f = _mm256_slli_si256(f, 1);
+#elif __SSE2__
                 f = _mm_slli_si128(f, 1);
 #endif
             for (j = 0; LIKELY(j < slen); ++j) {
 #ifdef __PPC64__
-                h = vec_load1q(H1 + j);
-#endif
-#ifdef __x86_64__
-                h = _mm_load_si128(H1 + j);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
                 h = vec_max16ub(h, f); // h=H'(i,j)
-#endif
-#ifdef __x86_64__
-                h = _mm_max_epu8(h, f); // h=H'(i,j)
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
                 vec_store1q(H1 + j, h);
-#endif
-#ifdef __x86_64__
-                _mm_store_si128(H1 + j, h);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
                 h = vec_subtractsaturating16ub(h, oe_ins);
-#endif
-#ifdef __x86_64__
-                h = _mm_subs_epu8(h, oe_ins);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
                 f = vec_subtractsaturating16ub(f, e_ins);
-#endif
-#ifdef __x86_64__
-                f = _mm_subs_epu8(f, e_ins);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
                 cmp = vec_extractupperbit16sb(vec_compareeq16sb(vec_subtractsaturating16ub(f, h), zero));
-#endif
-#ifdef __x86_64__
+#elif __AVX__
+                h = _mm256_load_si256(H1 + j);
+                h = _mm256_max_epu8(h, f); // h=H'(i,j)
+                _mm256_store_si256(H1 + j, h);
+                h = _mm256_subs_epu8(h, oe_ins);
+                f = _mm256_subs_epu8(f, e_ins);
+                cmp = _mm256_movemask_epi8(_mm_cmpeq_epi8(_mm_subs_epu8(f, h), zero));
+#elif __SSE2__
+                h = _mm_load_si128(H1 + j);
+                h = _mm_max_epu8(h, f); // h=H'(i,j)
+                _mm_store_si128(H1 + j, h);
+                h = _mm_subs_epu8(h, oe_ins);
+                f = _mm_subs_epu8(f, e_ins);
                 cmp = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_subs_epu8(f, h), zero));
-   /* NEED INSPECTION */
 #endif
                 if (UNLIKELY(cmp == 0xffff)) goto end_loop16;
             }
@@ -424,8 +352,9 @@ end_loop16:
             for (j = 0; LIKELY(j < slen); ++j) // keep the H1 vector
 #ifdef __PPC64__
                 vec_store1q(Hmax + j, vec_load1q(H1 + j));
-#endif
-#ifdef __x86_64__
+#elif __AVX__
+                _mm256_store_si256(Hmax + j, _mm256_load_si256(H1 + j));
+#elif __SSE2__
                 _mm_store_si128(Hmax + j, _mm_load_si128(H1 + j));
    /* NEED INSPECTION */
 #endif
@@ -460,7 +389,11 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
 {
     int slen, i, m_b, n_b, te = -1, gmax = 0, minsc, endsc;
     uint64_t *b;
+#ifdef __AVX__
+    __m256i zero, oe_del, e_del, oe_ins, e_ins, *H0, *H1, *E, *Hmax;
+#else
     __m128i zero, oe_del, e_del, oe_ins, e_ins, *H0, *H1, *E, *Hmax;
+#endif
     kswr_t r;
 
 #ifdef __PPC64__
@@ -470,8 +403,14 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
                 (xx) = vec_max8sh((xx), vec_shiftrightbytes1q((xx), 2)); \
         (ret) = vec_extract8sh((xx), 0); \
         } while (0)
-#endif
-#ifdef __x86_64__
+#elif __AVX__
+#define __max_8(ret, xx) do { \
+                (xx) = _mm256_max_epi16((xx), _mm256_srli_si256((xx), 8)); \
+                (xx) = _mm256_max_epi16((xx), _mm256_srli_si256((xx), 4)); \
+                (xx) = _mm256_max_epi16((xx), _mm256_srli_si256((xx), 2)); \
+        (ret) = _mm256_extract_epi16((xx), 0); \
+        } while (0)
+#elif __SSE2__
 #define __max_8(ret, xx) do { \
                 (xx) = _mm_max_epi16((xx), _mm_srli_si128((xx), 8)); \
                 (xx) = _mm_max_epi16((xx), _mm_srli_si128((xx), 4)); \
@@ -487,59 +426,37 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
     m_b = n_b = 0; b = 0;
 #ifdef __PPC64__
     zero = vec_splat4sw(0);
-#endif
-#ifdef __x86_64__
-    zero = _mm_set1_epi32(0);    /* !!!REP NOT FOUND!!! */
-#endif
-#ifdef __PPC64__
     oe_del = vec_splat8sh(_o_del + _e_del);
-#endif
-#ifdef __x86_64__
-    oe_del = _mm_set1_epi16(_o_del + _e_del);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
     e_del = vec_splat8sh(_e_del);
-#endif
-#ifdef __x86_64__
-    e_del = _mm_set1_epi16(_e_del);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
     oe_ins = vec_splat8sh(_o_ins + _e_ins);
-#endif
-#ifdef __x86_64__
-    oe_ins = _mm_set1_epi16(_o_ins + _e_ins);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
     e_ins = vec_splat8sh(_e_ins);
-#endif
-#ifdef __x86_64__
+#elif __AVX__
+    zero = _mm256_set1_epi32(0);    /* !!!REP NOT FOUND!!! */
+    oe_del = _mm256_set1_epi16(_o_del + _e_del);
+    e_del = _mm256_set1_epi16(_e_del);
+    oe_ins = _mm256_set1_epi16(_o_ins + _e_ins);
+    e_ins = _mm256_set1_epi16(_e_ins);
+#elif __SSE2__
+    zero = _mm_set1_epi32(0);    /* !!!REP NOT FOUND!!! */
+    oe_del = _mm_set1_epi16(_o_del + _e_del);
+    e_del = _mm_set1_epi16(_e_del);
+    oe_ins = _mm_set1_epi16(_o_ins + _e_ins);
     e_ins = _mm_set1_epi16(_e_ins);
-   /* NEED INSPECTION */
 #endif
     H0 = q->H0; H1 = q->H1; E = q->E; Hmax = q->Hmax;
     slen = q->slen;
     for (i = 0; i < slen; ++i) {
 #ifdef __PPC64__
         vec_store1q(E + i, zero);
-#endif
-#ifdef __x86_64__
-        _mm_store_si128(E + i, zero);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
         vec_store1q(H0 + i, zero);
-#endif
-#ifdef __x86_64__
-        _mm_store_si128(H0 + i, zero);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
         vec_store1q(Hmax + i, zero);
-#endif
-#ifdef __x86_64__
+#elif __AVX__
+        _mm256_store_si256(E + i, zero);
+        _mm256_store_si256(H0 + i, zero);
+        _mm256_store_si256(Hmax + i, zero);
+#elif __SSE2__
+        _mm_store_si128(E + i, zero);
+        _mm_store_si128(H0 + i, zero);
         _mm_store_si128(Hmax + i, zero);
    /* NEED INSPECTION */
 #endif
@@ -547,11 +464,16 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
     // the core loop
     for (i = 0; i < tlen; ++i) {
         int j, k, imax;
+#ifdef __AVX__
+        __m256i e, t, h, f = zero, max = zero, *S = q->qp + target[i] * slen; // s is the 1st score vector
+#else
         __m128i e, t, h, f = zero, max = zero, *S = q->qp + target[i] * slen; // s is the 1st score vector
+#endif
 #ifdef __PPC64__
         h = vec_load1q(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
-#endif
-#ifdef __x86_64__
+#elif __AVX__
+        h = _mm256_load_si256(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
+#elif __SSE2__
         h = _mm_load_si128(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
    /* NEED INSPECTION */
 #endif
@@ -561,163 +483,90 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
 #else
             h = vec_shiftleftbytes1q(h, 2);
 #endif
-#endif
-#ifdef __x86_64__
-            h = _mm_slli_si128(h, 2);
+#elif __AVX__
+        h = _mm256_slli_si256(h, 2);
+#elif __SSE2__
+        h = _mm_slli_si128(h, 2);
 #endif
         for (j = 0; LIKELY(j < slen); ++j) {
 #ifdef __PPC64__
             h = vec_addsaturating8sh(h, *S++);
-#endif
-#ifdef __x86_64__
-            h = _mm_adds_epi16(h, *S++);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             e = vec_load1q(E + j);
-#endif
-#ifdef __x86_64__
-            e = _mm_load_si128(E + j);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             h = vec_max8sh(h, e);
-#endif
-#ifdef __x86_64__
-            h = _mm_max_epi16(h, e);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             h = vec_max8sh(h, f);
-#endif
-#ifdef __x86_64__
-            h = _mm_max_epi16(h, f);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             max = vec_max8sh(max, h);
-#endif
-#ifdef __x86_64__
-            max = _mm_max_epi16(max, h);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             vec_store1q(H1 + j, h);
-#endif
-#ifdef __x86_64__
-            _mm_store_si128(H1 + j, h);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             e = vec_subtractsaturating8uh(e, e_del);
-#endif
-#ifdef __x86_64__
-            e = _mm_subs_epu16(e, e_del);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             t = vec_subtractsaturating8uh(h, oe_del);
-#endif
-#ifdef __x86_64__
-            t = _mm_subs_epu16(h, oe_del);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             e = vec_max8sh(e, t);
-#endif
-#ifdef __x86_64__
-            e = _mm_max_epi16(e, t);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             vec_store1q(E + j, e);
-#endif
-#ifdef __x86_64__
-            _mm_store_si128(E + j, e);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
-            f = vec_subtractsaturating8uh(f, e_ins);
-#endif
-#ifdef __x86_64__
-            f = _mm_subs_epu16(f, e_ins);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             t = vec_subtractsaturating8uh(h, oe_ins);
-#endif
-#ifdef __x86_64__
-            t = _mm_subs_epu16(h, oe_ins);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             f = vec_max8sh(f, t);
-#endif
-#ifdef __x86_64__
-            f = _mm_max_epi16(f, t);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
             h = vec_load1q(H0 + j);
-#endif
-#ifdef __x86_64__
+#elif __AVX__
+            h = _mm256_adds_epi16(h, *S++);
+            e = _mm256_load_si258(E + j);
+            h = _mm256_max_epi16(h, e);
+            h = _mm256_max_epi16(h, f);
+            max = _mm256_max_epi16(max, h);
+            _mm256_store_si258(H1 + j, h);
+            e = _mm256_subs_epu16(e, e_del);
+            t = _mm256_subs_epu16(h, oe_del);
+            e = _mm256_max_epi16(e, t);
+            _mm256_store_si258(E + j, e);
+            t = _mm256_subs_epu16(h, oe_ins);
+            f = _mm256_max_epi16(f, t);
+            h = _mm256_load_si258(H0 + j);
+#elif __SSE2__
+            h = _mm_adds_epi16(h, *S++);
+            e = _mm_load_si128(E + j);
+            h = _mm_max_epi16(h, e);
+            h = _mm_max_epi16(h, f);
+            max = _mm_max_epi16(max, h);
+            _mm_store_si128(H1 + j, h);
+            e = _mm_subs_epu16(e, e_del);
+            t = _mm_subs_epu16(h, oe_del);
+            e = _mm_max_epi16(e, t);
+            _mm_store_si128(E + j, e);
+            t = _mm_subs_epu16(h, oe_ins);
+            f = _mm_max_epi16(f, t);
             h = _mm_load_si128(H0 + j);
-   /* NEED INSPECTION */
 #endif
         }
         for (k = 0; LIKELY(k < 16); ++k) {
 #ifdef __PPC64__
 #ifdef __BIG_ENDIAN__
-                f = vec_shiftrightbytes1q(f, 2);
+                    f = vec_shiftrightbytes1q(f, 2);
 #else
-                f = vec_shiftleftbytes1q(f, 2);
+                    f = vec_shiftleftbytes1q(f, 2);
 #endif
-#endif
-#ifdef __x86_64__
+#elif __AVX__
+                f = _mm256_slli_si256(f, 2);
+#elif __SSE2__
                 f = _mm_slli_si128(f, 2);
 #endif
             for (j = 0; LIKELY(j < slen); ++j) {
 #ifdef __PPC64__
                 h = vec_load1q(H1 + j);
-#endif
-#ifdef __x86_64__
-                h = _mm_load_si128(H1 + j);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
                 h = vec_max8sh(h, f);
-#endif
-#ifdef __x86_64__
-                h = _mm_max_epi16(h, f);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
                 vec_store1q(H1 + j, h);
-#endif
-#ifdef __x86_64__
-                _mm_store_si128(H1 + j, h);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
                 h = vec_subtractsaturating8uh(h, oe_ins);
-#endif
-#ifdef __x86_64__
-                h = _mm_subs_epu16(h, oe_ins);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
                 f = vec_subtractsaturating8uh(f, e_ins);
-#endif
-#ifdef __x86_64__
-                f = _mm_subs_epu16(f, e_ins);
-   /* NEED INSPECTION */
-#endif
-#ifdef __PPC64__
                 if(UNLIKELY(!vec_extractupperbit16sb(vec_comparegt8sh(f, h)))) goto end_loop8;
-#endif
-#ifdef __x86_64__
+#elif __AVX__
+                h = _mm256_load_si256(H1 + j);
+                h = _mm256_max_epi16(h, f);
+                _mm256_store_si256(H1 + j, h);
+                h = _mm256_subs_epu16(h, oe_ins);
+                f = _mm256_subs_epu16(f, e_ins);
+                if(UNLIKELY(!_mm256_movemask_epi8(_mm256_cmpgt_epi16(f, h)))) goto end_loop8;
+#elif __SSE2__
+                h = _mm_load_si128(H1 + j);
+                h = _mm_max_epi16(h, f);
+                _mm_store_si128(H1 + j, h);
+                h = _mm_subs_epu16(h, oe_ins);
+                f = _mm_subs_epu16(f, e_ins);
                 if(UNLIKELY(!_mm_movemask_epi8(_mm_cmpgt_epi16(f, h)))) goto end_loop8;
-   /* NEED INSPECTION */
 #endif
             }
         }
@@ -737,8 +586,9 @@ end_loop8:
             for (j = 0; LIKELY(j < slen); ++j)
 #ifdef __PPC64__
                 vec_store1q(Hmax + j, vec_load1q(H1 + j));
-#endif
-#ifdef __x86_64__
+#elif __AVX__
+                _mm256_store_si256(Hmax + j, _mm256_load_si256(H1 + j));
+#elif __SSE2__
                 _mm_store_si128(Hmax + j, _mm_load_si128(H1 + j));
    /* NEED INSPECTION */
 #endif
