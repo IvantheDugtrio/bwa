@@ -323,7 +323,7 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
                 _mm256_store_si256(H1 + j, h);
                 h = _mm256_subs_epu8(h, oe_ins);
                 f = _mm256_subs_epu8(f, e_ins);
-                cmp = _mm256_movemask_epi8(_mm_cmpeq_epi8(_mm_subs_epu8(f, h), zero));  // TODO
+                cmp = _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_subs_epu8(f, h), zero));
 #elif __SSE2__
                 h = _mm_load_si128(H1 + j);
                 h = _mm_max_epu8(h, f); // h=H'(i,j)
@@ -505,18 +505,18 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
             h = vec_load1q(H0 + j);
 #elif __AVX__
             h = _mm256_adds_epi16(h, *S++);
-            e = _mm256_load_si258(E + j);   // TODO
+            e = _mm256_load_si256(E + j);
             h = _mm256_max_epi16(h, e);
             h = _mm256_max_epi16(h, f);
             max = _mm256_max_epi16(max, h);
-            _mm256_store_si258(H1 + j, h);  // TODO
+            _mm256_store_si256(H1 + j, h);
             e = _mm256_subs_epu16(e, e_del);
             t = _mm256_subs_epu16(h, oe_del);
             e = _mm256_max_epi16(e, t);
-            _mm256_store_si258(E + j, e);   // TODO
+            _mm256_store_si256(E + j, e);
             t = _mm256_subs_epu16(h, oe_ins);
             f = _mm256_max_epi16(f, t);
-            h = _mm256_load_si258(H0 + j);  // TODO
+            h = _mm256_load_si256(H0 + j);
 #elif __SSE2__
             h = _mm_adds_epi16(h, *S++);
             e = _mm_load_si128(E + j);
