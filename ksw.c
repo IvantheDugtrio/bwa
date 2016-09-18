@@ -52,7 +52,7 @@ const kswr_t g_defr = { 0, -1, -1, -1, -1, -1, -1 };
 struct _kswq_t {
     int qlen, slen;
     uint8_t shift, mdiff, max, size;
-#ifdef __AVX__
+#ifdef __AVX2__
     __m256i *qp, *H0, *H1, *E, *Hmax;
 #else
     __m128i *qp, *H0, *H1, *E, *Hmax;
@@ -79,7 +79,7 @@ kswq_t *ksw_qinit(int size, int qlen, const uint8_t *query, int m, const int8_t 
     p = 8 * (3 - size); // # values per __m128i
     slen = (qlen + p - 1) / p; // segmented length
     q = (kswq_t*)malloc(sizeof(kswq_t) + 256 + 16 * slen * (m + 4)); // a single block of memory
-#ifdef __AVX__
+#ifdef __AVX2__
     q->qp = (__m256i*)(((size_t)q + sizeof(kswq_t) + 15) >> 4 << 4); // align memory
 #else
     q->qp = (__m128i*)(((size_t)q + sizeof(kswq_t) + 15) >> 4 << 4); // align memory
@@ -126,7 +126,7 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
 {
     int slen, i, m_b, n_b, te = -1, gmax = 0, minsc, endsc;
     uint64_t *b;
-#ifdef __AVX__
+#ifdef __AVX2__
     __m256i zero, oe_del, e_del, oe_ins, e_ins, shift, *H0, *H1, *E, *Hmax;
 #else
     __m128i zero, oe_del, e_del, oe_ins, e_ins, shift, *H0, *H1, *E, *Hmax;
@@ -141,7 +141,7 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
                 (xx) = vec_max16ub((xx), vec_shiftrightbytes1q((xx), 1)); \
         (ret) = vec_extract8sh((xx), 0) & 0x00ff; \
         } while (0)
-#elif __AVX__
+#elif __AVX2__
 #define __max_16(ret, xx) do { \
                 (xx) = _mm256_max_epu8((xx), _mm256_srli_si256((xx), 8)); \
                 (xx) = _mm256_max_epu8((xx), _mm256_srli_si256((xx), 4)); \
@@ -171,7 +171,7 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
     oe_ins = vec_splat16sb(_o_ins + _e_ins);
     e_ins = vec_splat16sb(_e_ins);
     shift = vec_splat16sb(q->shift);
-#elif __AVX__
+#elif __AVX2__
     zero = _mm256_set1_epi32(0);    /* !!!REP NOT FOUND!!! */
     oe_del = _mm256_set1_epi8(_o_del + _e_del);
     e_del = _mm256_set1_epi8(_e_del);
@@ -193,7 +193,7 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
         vec_store1q(E + i, zero);
         vec_store1q(H0 + i, zero);
         vec_store1q(Hmax + i, zero);
-#elif __AVX__
+#elif __AVX2__
         _mm256_store_si256(E + i, zero);
         _mm256_store_si256(Hmax + i, zero);
         _mm256_store_si256(H0 + i, zero);
@@ -206,14 +206,14 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
     // the core loop
     for (i = 0; i < tlen; ++i) {
         int j, k, cmp, imax;
-#ifdef __AVX__
+#ifdef __AVX2__
         __m256i e, h, t, f = zero, max = zero, *S = q->qp + target[i] * slen; // s is the 1st score vector
 #else
         __m128i e, h, t, f = zero, max = zero, *S = q->qp + target[i] * slen; // s is the 1st score vector
 #endif
 #ifdef __PPC64__
         h = vec_load1q(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
-#elif __AVX__
+#elif __AVX2__
         h = _mm256_load_si256(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
 #elif __SSE2__
         h = _mm_load_si128(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
@@ -224,7 +224,7 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
 #else
                 h = vec_shiftleftbytes1q(h, 1); // h=H(i-1,-1); << instead of >> because x64 is little-endian
 #endif
-#elif __AVX__
+#elif __AVX2__
             h = _mm256_slli_si256(h, 1); // h=H(i-1,-1); << instead of >> because x64 is little-endian
 #elif __SSE2__
             h = _mm_slli_si128(h, 1); // h=H(i-1,-1); << instead of >> because x64 is little-endian
@@ -256,7 +256,7 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
             f = vec_max16ub(f, t);
             // get H'(i-1,j) and prepare for the next j
             h = vec_load1q(H0 + j); // h=H'(i-1,j)
-#elif __AVX__
+#elif __AVX2__
             h = _mm256_adds_epu8(h, _mm256_load_si256(S + j));
             h = _mm256_subs_epu8(h, shift); // h=H'(i-1,j-1)+S(i,j)
             e = _mm256_load_si256(E + j); // e=E'(i,j)
@@ -305,7 +305,7 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
                     f = vec_shiftleftbytes1q(f, 1);
 #endif
                 h = vec_load1q(H1 + j);
-#elif __AVX__
+#elif __AVX2__
                 f = _mm256_slli_si256(f, 1);
 #elif __SSE2__
                 f = _mm_slli_si128(f, 1);
@@ -317,7 +317,7 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
                 h = vec_subtractsaturating16ub(h, oe_ins);
                 f = vec_subtractsaturating16ub(f, e_ins);
                 cmp = vec_extractupperbit16sb(vec_compareeq16sb(vec_subtractsaturating16ub(f, h), zero));
-#elif __AVX__
+#elif __AVX2__
                 h = _mm256_load_si256(H1 + j);
                 h = _mm256_max_epu8(h, f); // h=H'(i,j)
                 _mm256_store_si256(H1 + j, h);
@@ -352,7 +352,7 @@ end_loop16:
             for (j = 0; LIKELY(j < slen); ++j) // keep the H1 vector
 #ifdef __PPC64__
                 vec_store1q(Hmax + j, vec_load1q(H1 + j));
-#elif __AVX__
+#elif __AVX2__
                 _mm256_store_si256(Hmax + j, _mm256_load_si256(H1 + j));
 #elif __SSE2__
                 _mm_store_si128(Hmax + j, _mm_load_si128(H1 + j));
@@ -389,7 +389,7 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
 {
     int slen, i, m_b, n_b, te = -1, gmax = 0, minsc, endsc;
     uint64_t *b;
-#ifdef __AVX__
+#ifdef __AVX2__
     __m256i zero, oe_del, e_del, oe_ins, e_ins, *H0, *H1, *E, *Hmax;
 #else
     __m128i zero, oe_del, e_del, oe_ins, e_ins, *H0, *H1, *E, *Hmax;
@@ -403,7 +403,7 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
                 (xx) = vec_max8sh((xx), vec_shiftrightbytes1q((xx), 2)); \
         (ret) = vec_extract8sh((xx), 0); \
         } while (0)
-#elif __AVX__
+#elif __AVX2__
 #define __max_8(ret, xx) do { \
                 (xx) = _mm256_max_epi16((xx), _mm256_srli_si256((xx), 8)); \
                 (xx) = _mm256_max_epi16((xx), _mm256_srli_si256((xx), 4)); \
@@ -430,7 +430,7 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
     e_del = vec_splat8sh(_e_del);
     oe_ins = vec_splat8sh(_o_ins + _e_ins);
     e_ins = vec_splat8sh(_e_ins);
-#elif __AVX__
+#elif __AVX2__
     zero = _mm256_set1_epi32(0);    /* !!!REP NOT FOUND!!! */
     oe_del = _mm256_set1_epi16(_o_del + _e_del);
     e_del = _mm256_set1_epi16(_e_del);
@@ -450,7 +450,7 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
         vec_store1q(E + i, zero);
         vec_store1q(H0 + i, zero);
         vec_store1q(Hmax + i, zero);
-#elif __AVX__
+#elif __AVX2__
         _mm256_store_si256(E + i, zero);
         _mm256_store_si256(H0 + i, zero);
         _mm256_store_si256(Hmax + i, zero);
@@ -464,14 +464,14 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
     // the core loop
     for (i = 0; i < tlen; ++i) {
         int j, k, imax;
-#ifdef __AVX__
+#ifdef __AVX2__
         __m256i e, t, h, f = zero, max = zero, *S = q->qp + target[i] * slen; // s is the 1st score vector
 #else
         __m128i e, t, h, f = zero, max = zero, *S = q->qp + target[i] * slen; // s is the 1st score vector
 #endif
 #ifdef __PPC64__
         h = vec_load1q(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
-#elif __AVX__
+#elif __AVX2__
         h = _mm256_load_si256(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
 #elif __SSE2__
         h = _mm_load_si128(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
@@ -483,7 +483,7 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
 #else
             h = vec_shiftleftbytes1q(h, 2);
 #endif
-#elif __AVX__
+#elif __AVX2__
         h = _mm256_slli_si256(h, 2);
 #elif __SSE2__
         h = _mm_slli_si128(h, 2);
@@ -503,7 +503,7 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
             t = vec_subtractsaturating8uh(h, oe_ins);
             f = vec_max8sh(f, t);
             h = vec_load1q(H0 + j);
-#elif __AVX__
+#elif __AVX2__
             h = _mm256_adds_epi16(h, *S++);
             e = _mm256_load_si256(E + j);
             h = _mm256_max_epi16(h, e);
@@ -540,7 +540,7 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
 #else
                     f = vec_shiftleftbytes1q(f, 2);
 #endif
-#elif __AVX__
+#elif __AVX2__
                 f = _mm256_slli_si256(f, 2);
 #elif __SSE2__
                 f = _mm_slli_si128(f, 2);
@@ -553,7 +553,7 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
                 h = vec_subtractsaturating8uh(h, oe_ins);
                 f = vec_subtractsaturating8uh(f, e_ins);
                 if(UNLIKELY(!vec_extractupperbit16sb(vec_comparegt8sh(f, h)))) goto end_loop8;
-#elif __AVX__
+#elif __AVX2__
                 h = _mm256_load_si256(H1 + j);
                 h = _mm256_max_epi16(h, f);
                 _mm256_store_si256(H1 + j, h);
@@ -586,7 +586,7 @@ end_loop8:
             for (j = 0; LIKELY(j < slen); ++j)
 #ifdef __PPC64__
                 vec_store1q(Hmax + j, vec_load1q(H1 + j));
-#elif __AVX__
+#elif __AVX2__
                 _mm256_store_si256(Hmax + j, _mm256_load_si256(H1 + j));
 #elif __SSE2__
                 _mm_store_si128(Hmax + j, _mm_load_si128(H1 + j));
