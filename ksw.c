@@ -62,7 +62,7 @@ struct _kswq_t {
     int qlen, slen;
     uint8_t shift, mdiff, max, size;
 #ifdef __AVX512F__
-    __m128i *qp, *H0, *H1, *E, *Hmax;
+    __m512i *qp, *H0, *H1, *E, *Hmax;
 #elif __AVX2__
     __m256i *qp, *H0, *H1, *E, *Hmax;
 #elif __SSE2__
@@ -90,20 +90,24 @@ kswq_t *ksw_qinit(int size, int qlen, const uint8_t *query, int m, const int8_t 
     kswq_t *q;
     int slen, a, tmp, p;
 
+#ifdef __AVX512F__
+    size = size > 1? 2 : 1;
+    p = 32 * (3 - size); // # values per __m512i
+    slen = (qlen + p - 1) / p; // segmented length
+    q = (kswq_t*)malloc(sizeof(kswq_t) + 256 + 16 * slen * (m + 4)); // a single block of memory
+    q->qp = (__m512i*)(((size_t)q + sizeof(kswq_t) + 15) >> 4 << 4); // align memory
+#elif __AVX2__
+    size = size > 1? 2 : 1;
+    p = 16 * (3 - size); // # values per __m256i
+    slen = (qlen + p - 1) / p; // segmented length
+    q = (kswq_t*)malloc(sizeof(kswq_t) + 256 + 16 * slen * (m + 4)); // a single block of memory
+    q->qp = (__m256i*)(((size_t)q + sizeof(kswq_t) + 15) >> 4 << 4); // align memory
+#else
     size = size > 1? 2 : 1;
     p = 8 * (3 - size); // # values per __m128i
     slen = (qlen + p - 1) / p; // segmented length
     q = (kswq_t*)malloc(sizeof(kswq_t) + 256 + 16 * slen * (m + 4)); // a single block of memory
-#ifdef __AVX512F__
     q->qp = (__m128i*)(((size_t)q + sizeof(kswq_t) + 15) >> 4 << 4); // align memory
-#elif __AVX2__
-    q->qp = (__m256i*)(((size_t)q + 2*sizeof(kswq_t) + 15) >> 4 << 4); // align memory
-#elif __SSE2__
-    q->qp = (__m128i*)(((size_t)q + sizeof(kswq_t) + 15) >> 4 << 4); // align memory
-#elif __PPC64__
-    q->qp = (__m128i*)(((size_t)q + sizeof(kswq_t) + 15) >> 4 << 4); // align memory
-//#else
-//    q->qp = (__m128i*)(((size_t)q + sizeof(kswq_t) + 15) >> 4 << 4); // align memory
 #endif
     q->H0 = q->qp + slen * m;
     q->H1 = q->H0 + slen;
@@ -148,7 +152,7 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
     int slen, i, m_b, n_b, te = -1, gmax = 0, minsc, endsc;
     uint64_t *b;
 #ifdef __AVX512F__
-    __m128i zero, oe_del, e_del, oe_ins, e_ins, shift, *H0, *H1, *E, *Hmax;
+    __m512i zero, oe_del, e_del, oe_ins, e_ins, shift, *H0, *H1, *E, *Hmax;
 #elif __AVX2__
     __m256i zero, oe_del, e_del, oe_ins, e_ins, shift, *H0, *H1, *E, *Hmax;
 #else
@@ -166,11 +170,11 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
         } while (0)
 #elif __AVX512F__   //TODO
 #define __max_16(ret, xx) do { \
-                (xx) = _mm_mask_max_epu8((xx), _mm_mask_srli_si128((xx), 8)); \
-                (xx) = _mm_mask_max_epu8((xx), _mm_mask_srli_si128((xx), 4)); \
-                (xx) = _mm_mask_max_epu8((xx), _mm_mask_srli_si128((xx), 2)); \
-                (xx) = _mm_mask_max_epu8((xx), _mm_mask_srli_si128((xx), 1)); \
-        (ret) = _mm128_extract_epi16((xx), 0) & 0x00ff; \
+                (xx) = _mm512_max_epu8((xx), _mm512_srli_si512((xx), 8)); \
+                (xx) = _mm512_max_epu8((xx), _mm512_srli_si512((xx), 4)); \
+                (xx) = _mm512_max_epu8((xx), _mm512_srli_si512((xx), 2)); \
+                (xx) = _mm512_max_epu8((xx), _mm512_srli_si512((xx), 1)); \
+        (ret) = _mm512_extract_epi16((xx), 0) & 0x00ff; \
         } while (0)
 #elif __AVX2__
 #define __max_16(ret, xx) do { \
@@ -203,12 +207,12 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
     e_ins = vec_splat16sb(_e_ins);
     shift = vec_splat16sb(q->shift);
 #elif __AVX512F__
-    zero = _mm_mask_set1_epi32(0);    /* !!!REP NOT FOUND!!! */
-    oe_del = _mm_mask_set1_epi8(_o_del + _e_del);
-    e_del = _mm_mask_set1_epi8(_e_del);
-    oe_ins = _mm_mask_set1_epi8(_o_ins + _e_ins);
-    e_ins = _mm_mask_set1_epi8(_e_ins);
-    shift = _mm_mask_set1_epi8(q->shift);
+    zero = _mm512_set1_epi32(0);    /* !!!REP NOT FOUND!!! */
+    oe_del = _mm512_set1_epi8(_o_del + _e_del);
+    e_del = _mm512_set1_epi8(_e_del);
+    oe_ins = _mm512_set1_epi8(_o_ins + _e_ins);
+    e_ins = _mm512_set1_epi8(_e_ins);
+    shift = _mm512_set1_epi8(q->shift);
 #elif __AVX2__
     zero = _mm256_set1_epi32(0);    /* !!!REP NOT FOUND!!! */
     oe_del = _mm256_set1_epi8(_o_del + _e_del);
@@ -232,9 +236,9 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
         vec_store1q(H0 + i, zero);
         vec_store1q(Hmax + i, zero);
 #elif __AVX512F__   //TODO
-        _mm_mask_store_si128(E + i, zero);
-        _mm_mask_store_si128(Hmax + i, zero);
-        _mm_mask_store_si128(H0 + i, zero);
+        _mm512_store_si512(E + i, zero);
+        _mm512_store_si512(Hmax + i, zero);
+        _mm512_store_si512(H0 + i, zero);
 #elif __AVX2__
         _mm256_store_si256(E + i, zero);
         _mm256_store_si256(Hmax + i, zero);
@@ -249,7 +253,7 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
     for (i = 0; i < tlen; ++i) {
         int j, k, cmp, imax;
 #ifdef __AVX512F__
-        __m128i e, h, t, f = zero, max = zero, *S = q->qp + target[i] * slen; // s is the 1st score vector
+        __m512i e, h, t, f = zero, max = zero, *S = q->qp + target[i] * slen; // s is the 1st score vector
 #elif __AVX2__
         __m256i e, h, t, f = zero, max = zero, *S = q->qp + target[i] * slen; // s is the 1st score vector
 #else
@@ -258,7 +262,7 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
 #ifdef __PPC64__
         h = vec_load1q(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
 #elif __AVX512F__
-        h = _mm_mask_load_si128(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
+        h = _mm512_load_si512(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
 #elif __AVX2__
         h = _mm256_load_si256(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
 #elif __SSE2__
@@ -271,7 +275,7 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
                 h = vec_shiftleftbytes1q(h, 1); // h=H(i-1,-1); << instead of >> because x64 is little-endian
 #endif
 #elif __AVX512F__   //TODO
-            h = _mm_mask_slli_si128(h, 1); // h=H(i-1,-1); << instead of >> because x64 is little-endian
+            h = _mm512_slli_si512(h, 1); // h=H(i-1,-1); << instead of >> because x64 is little-endian
 #elif __AVX2__
             h = _mm256_slli_si256(h, 1); // h=H(i-1,-1); << instead of >> because x64 is little-endian
 #elif __SSE2__
@@ -305,24 +309,24 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
             // get H'(i-1,j) and prepare for the next j
             h = vec_load1q(H0 + j); // h=H'(i-1,j)
 #elif __AVX512F__   //TODO
-            h = _mm_mask_adds_epu8(h, _mm_mask_load_si128(S + j));
-            h = _mm_mask_subs_epu8(h, shift); // h=H'(i-1,j-1)+S(i,j)
-            e = _mm_mask_load_si128(E + j); // e=E'(i,j)
-            h = _mm_mask_max_epu8(h, e);
-            h = _mm_mask_max_epu8(h, f); // h=H'(i,j)
-            max = _mm_mask_max_epu8(max, h); // set max
-            _mm_mask_store_si128(H1 + j, h); // save to H'(i,j)
+            h = _mm512_adds_epu8(h, _mm512_load_si512(S + j));
+            h = _mm512_subs_epu8(h, shift); // h=H'(i-1,j-1)+S(i,j)
+            e = _mm512_load_si512(E + j); // e=E'(i,j)
+            h = _mm512_max_epu8(h, e);
+            h = _mm512_max_epu8(h, f); // h=H'(i,j)
+            max = _mm512_max_epu8(max, h); // set max
+            _mm512_store_si512(H1 + j, h); // save to H'(i,j)
             // now compute E'(i+1,j)
-            e = _mm_mask_subs_epu8(e, e_del); // e=E'(i,j) - e_del
-            t = _mm_mask_subs_epu8(h, oe_del); // h=H'(i,j) - o_del - e_del
-            e = _mm_mask_max_epu8(e, t); // e=E'(i+1,j)
-            _mm_mask_store_si_mask(E + j, e); // save to E'(i+1,j)
+            e = _mm512_subs_epu8(e, e_del); // e=E'(i,j) - e_del
+            t = _mm512_subs_epu8(h, oe_del); // h=H'(i,j) - o_del - e_del
+            e = _mm512_max_epu8(e, t); // e=E'(i+1,j)
+            _mm512_store_si512(E + j, e); // save to E'(i+1,j)
             // now compute F'(i,j+1)
-            f = _mm_mask_subs_epu8(f, e_ins);
-            t = _mm_mask_subs_epu8(h, oe_ins); // h=H'(i,j) - o_ins - e_ins
-            f = _mm_mask_max_epu8(f, t);
+            f = _mm512_subs_epu8(f, e_ins);
+            t = _mm512_subs_epu8(h, oe_ins); // h=H'(i,j) - o_ins - e_ins
+            f = _mm512_max_epu8(f, t);
             // get H'(i-1,j) and prepare for the next j
-            h = _mm_mask_load_si128(H0 + j); // h=H'(i-1,j)
+            h = _mm512_load_si512(H0 + j); // h=H'(i-1,j)
 #elif __AVX2__
             h = _mm256_adds_epu8(h, _mm256_load_si256(S + j));
             h = _mm256_subs_epu8(h, shift); // h=H'(i-1,j-1)+S(i,j)
@@ -373,7 +377,7 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
 #endif
                 h = vec_load1q(H1 + j);
 #elif __AVX512F__
-                f = _mm_mask_slli_si128(f, 1);    //TODO
+                f = _mm512_slli_si512(f, 1);    //TODO
 #elif __AVX2__
                 f = _mm256_slli_si256(f, 1);
 #elif __SSE2__
@@ -387,12 +391,12 @@ kswr_t ksw_u8(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_del
                 f = vec_subtractsaturating16ub(f, e_ins);
                 cmp = vec_extractupperbit16sb(vec_compareeq16sb(vec_subtractsaturating16ub(f, h), zero));
 #elif __AVX512F__   //TODO
-                h = _mm_mask_load_si_mask(H1 + j);
-                h = _mm_mask_max_epu8(h, f); // h=H'(i,j)
-                _mm_mask_store_si128(H1 + j, h);
-                h = _mm_mask_subs_epu8(h, oe_ins);
-                f = _mm_mask_subs_epu8(f, e_ins);
-                cmp = _mm_mask_movemask_epi8(_mm_mask_cmpeq_epi8(_mm_mask_subs_epu8(f, h), zero));
+                h = _mm512_load_si512(H1 + j);
+                h = _mm512_max_epu8(h, f); // h=H'(i,j)
+                _mm512_store_si512(H1 + j, h);
+                h = _mm512_subs_epu8(h, oe_ins);
+                f = _mm512_subs_epu8(f, e_ins);
+                cmp = _mm_movemask_epi8(_mm512_cmpeq_epi8(_mm512_subs_epu8(f, h), zero));
 #elif __AVX2__
                 h = _mm256_load_si256(H1 + j);
                 h = _mm256_max_epu8(h, f); // h=H'(i,j)
@@ -429,7 +433,7 @@ end_loop16:
 #ifdef __PPC64__
                 vec_store1q(Hmax + j, vec_load1q(H1 + j));
 #elif __AVX512F__   //TODO
-                _mm_mask_store_si128(Hmax + j, _mm_mask_load_si128(H1 + j));
+                _mm512_store_si512(Hmax + j, _mm512_load_si512(H1 + j));
 #elif __AVX2__
                 _mm256_store_si256(Hmax + j, _mm256_load_si256(H1 + j));
 #elif __SSE2__
@@ -485,16 +489,16 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
         } while (0)
 #elif __AVX512F__   //TODO
 #define __max_8(ret, xx) do { \
-                (xx) = _mm_mask_max_epi16((xx), _mm_mask_srli_si128((xx), 8)); \
-                (xx) = _mm_mask_max_epi16((xx), _mm_mask_srli_si128((xx), 4)); \
-                (xx) = _mm_mask_max_epi16((xx), _mm_mask_srli_si128((xx), 2)); \
+                (xx) = _mm512_max_epi16((xx), _mm_mask_srli_si128((xx), 8)); \
+                (xx) = _mm512_max_epi16((xx), _mm_mask_srli_si128((xx), 4)); \
+                (xx) = _mm512_max_epi16((xx), _mm_mask_srli_si128((xx), 2)); \
         (ret) = _mm_mask_extract_epi16((xx), 0); \
         } while (0)
 #elif __AVX2__
 #define __max_8(ret, xx) do { \
-                (xx) = _mm256_max_epi16((xx), _mm256_srli_si256((xx), 8)); \
-                (xx) = _mm256_max_epi16((xx), _mm256_srli_si256((xx), 4)); \
-                (xx) = _mm256_max_epi16((xx), _mm256_srli_si256((xx), 2)); \
+                (xx) = _mm256_max_epi32((xx), _mm256_srli_si256((xx), 8)); \
+                (xx) = _mm256_max_epi32((xx), _mm256_srli_si256((xx), 4)); \
+                (xx) = _mm256_max_epi32((xx), _mm256_srli_si256((xx), 2)); \
         (ret) = _mm256_extract_epi16((xx), 0); \
         } while (0)
 #elif __SSE2__
@@ -518,11 +522,11 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
     oe_ins = vec_splat8sh(_o_ins + _e_ins);
     e_ins = vec_splat8sh(_e_ins);
 #elif __AVX512F__
-    zero = _mm_mask_set1_epi32(0);    /* !!!REP NOT FOUND!!! */
-    oe_del = _mm_mask_set1_epi16(_o_del + _e_del);
-    e_del = _mm_mask_set1_epi16(_e_del);
-    oe_ins = _mm_mask_set1_epi16(_o_ins + _e_ins);
-    e_ins = _mm_mask_set1_epi16(_e_ins);
+    zero = _mm_maskz_set1_epi32(0);    /* !!!REP NOT FOUND!!! */
+    oe_del = _mm_maskz_set1_epi16(_o_del + _e_del);
+    e_del = _mm_maskz_set1_epi16(_e_del);
+    oe_ins = _mm_maskz_set1_epi16(_o_ins + _e_ins);
+    e_ins = _mm_maskz_set1_epi16(_e_ins);
 #elif __AVX2__
     zero = _mm256_set1_epi32(0);    /* !!!REP NOT FOUND!!! */
     oe_del = _mm256_set1_epi16(_o_del + _e_del);
@@ -544,9 +548,9 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
         vec_store1q(H0 + i, zero);
         vec_store1q(Hmax + i, zero);
 #elif __AVX512F__   //TODO
-        _mm_mask_store_si128(E + i, zero);
-        _mm_mask_store_si128(H0 + i, zero);
-        _mm_mask_store_si128(Hmax + i, zero);
+        _mm512_store_si512(E + i, zero);
+        _mm512_store_si512(H0 + i, zero);
+        _mm512_store_si512(Hmax + i, zero);
 #elif __AVX2__
         _mm256_store_si256(E + i, zero);
         _mm256_store_si256(H0 + i, zero);
@@ -571,7 +575,7 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
 #ifdef __PPC64__
         h = vec_load1q(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
 #elif __AVX512F__   //TODO
-        h = _mm_mask_load_si128(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
+        h = _mm512_load_si512(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
 #elif __AVX2__
         h = _mm256_load_si256(H0 + slen - 1); // h={2,5,8,11,14,17,-1,-1} in the above example
 #elif __SSE2__
@@ -608,31 +612,31 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
             h = vec_load1q(H0 + j);
 #elif __AVX512F__   //TODO
             h = _mm_mask_adds_epi16(h, *S++);
-            e = _mm_mask_load_si128(E + j);
-            h = _mm_mask_max_epi16(h, e);
-            h = _mm_mask_max_epi16(h, f);
-            max = _mm_mask_max_epi16(max, h);
-            _mm_mask_store_si128(H1 + j, h);
+            e = _mm512_load_si512(E + j);
+            h = _mm512_max_epi16(h, e);
+            h = _mm512_max_epi16(h, f);
+            max = _mm512_max_epi16(max, h);
+            _mm512_store_si512(H1 + j, h);
             e = _mm_mask_subs_epu16(e, e_del);
             t = _mm_mask_subs_epu16(h, oe_del);
-            e = _mm_mask_max_epi16(e, t);
-            _mm_mask_store_si128(E + j, e);
+            e = _mm512_max_epi16(e, t);
+            _mm512_store_si512(E + j, e);
             t = _mm_mask_subs_epu16(h, oe_ins);
-            f = _mm_mask_max_epi16(f, t);
-            h = _mm_mask_load_si128(H0 + j);
+            f = _mm512_max_epi16(f, t);
+            h = _mm512_load_si512(H0 + j);
 #elif __AVX2__
             h = _mm256_adds_epi16(h, *S++);
             e = _mm256_load_si256(E + j);
-            h = _mm256_max_epi16(h, e);
-            h = _mm256_max_epi16(h, f);
-            max = _mm256_max_epi16(max, h);
+            h = _mm256_max_epi32(h, e);
+            h = _mm256_max_epi32(h, f);
+            max = _mm256_max_epi32(max, h);
             _mm256_store_si256(H1 + j, h);
             e = _mm256_subs_epu16(e, e_del);
             t = _mm256_subs_epu16(h, oe_del);
-            e = _mm256_max_epi16(e, t);
+            e = _mm256_max_epi32(e, t);
             _mm256_store_si256(E + j, e);
             t = _mm256_subs_epu16(h, oe_ins);
-            f = _mm256_max_epi16(f, t);
+            f = _mm256_max_epi32(f, t);
             h = _mm256_load_si256(H0 + j);
 #elif __SSE2__
             h = _mm_adds_epi16(h, *S++);
@@ -673,15 +677,15 @@ kswr_t ksw_i16(kswq_t *q, int tlen, const uint8_t *target, int _o_del, int _e_de
                 f = vec_subtractsaturating8uh(f, e_ins);
                 if(UNLIKELY(!vec_extractupperbit16sb(vec_comparegt8sh(f, h)))) goto end_loop8;
 #elif __AVX512F__   //TODO
-                h = _mm_mask_load_si128(H1 + j);
-                h = _mm_mask_max_epi16(h, f);
-                _mm_mask_store_si128(H1 + j, h);
+                h = _mm512_load_si512(H1 + j);
+                h = _mm512_max_epi16(h, f);
+                _mm512_store_si512(H1 + j, h);
                 h = _mm_mask_subs_epu16(h, oe_ins);
                 f = _mm_mask_subs_epu16(f, e_ins);
                 if(UNLIKELY(!_mm_mask_movemask_epi8(_mm_mask_cmpgt_epi16(f, h)))) goto end_loop8;
 #elif __AVX2__
                 h = _mm256_load_si256(H1 + j);
-                h = _mm256_max_epi16(h, f);
+                h = _mm256_max_epi32(h, f);
                 _mm256_store_si256(H1 + j, h);
                 h = _mm256_subs_epu16(h, oe_ins);
                 f = _mm256_subs_epu16(f, e_ins);
@@ -713,7 +717,7 @@ end_loop8:
 #ifdef __PPC64__
                 vec_store1q(Hmax + j, vec_load1q(H1 + j));
 #elif __AVX512F__   //TODO
-                _mm_mask_store_si128(Hmax + j, _mm_mask_load_si128(H1 + j));
+                _mm512_store_si512(Hmax + j, _mm512_load_si512(H1 + j));
 #elif __AVX2__
                 _mm256_store_si256(Hmax + j, _mm256_load_si256(H1 + j));
 #elif __SSE2__
