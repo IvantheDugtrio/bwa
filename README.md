@@ -1,4 +1,4 @@
-![Build Status](https://travis-ci.org/IvantheDugtrio/bwa.svg?branch=master)
+[![Travis](https://img.shields.io/travis/rust-lang/rust.svg?style=plastic)](https://travis-ci.org/IvantheDugtrio/bwa)
 ##Getting started
 
     git clone https://github.com/lh3/bwa.git
