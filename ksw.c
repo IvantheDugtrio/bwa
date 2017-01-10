@@ -27,6 +27,12 @@
 #include <stdint.h>
 #include <assert.h>
 #ifdef __PPC64__
+<<<<<<< HEAD
+#include "vec128intlib.h"
+#endif
+#ifdef __SSE2__
+#include <emmintrin.h>
+=======
 #pragma message "Using IBM POWER Altivec acceleration"
 #include "vec128int.h"
 #elif __x86_64__
@@ -41,6 +47,7 @@
 #include <immintrin.h>
 #else
 #pragma message "No vector intrinsics are being used"
+>>>>>>> d207424432f38aa7b68688011419c2693f456599
 #endif
 #include "ksw.h"
 

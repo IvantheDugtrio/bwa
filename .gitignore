@@ -5,3 +5,5 @@ test64
 .*.swp
 Makefile.bak
 bwamem-lite
+vec128int.h
+veclib_types.h
